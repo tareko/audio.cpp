@@ -46,6 +46,11 @@ and chunk-sizing math, so `أَيْنَ اللَّوْنُ الأَحْمَر؟`
 disambiguating marks take effect. `strip_diacritics=true` force-strips them instead
 (escape hatch).
 
+Usage note: the model articulates each mark token with real frames — dense marking
+(especially فتحة before ا) can add a small stretch/pause inside words. Best results come
+from sparse, disambiguating marks only (`حِصان` → correct and fluent), matching how
+optional tashkeel is normally used.
+
 ## Quickstart (from a fresh clone)
 
 Everything needed is installable from this repository — no Python inference stack required:
