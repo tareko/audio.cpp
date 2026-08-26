@@ -36,12 +36,15 @@ package, or a safetensors checkpoint + `vocab.txt` for development). Session opt
 Requests take `reference_text` (required), `dialect`, `speed`, `seed`, `num_inference_steps`,
 `cfg_strength` (alias `guidance_scale`), `sway_sampling_coef`, `strip_diacritics`.
 
-**Diacritics (harakat):** Habibi was trained on ASR transcripts, which are undiacritized —
-the harakat/tanwin/shadda tokens exist in the vocab but are severely undertrained, and raw
-diacritized input degrades to garbled speech with character repetitions (identical in the
-Python reference; not a port issue). By default the frontend strips combining marks
-(U+0640, U+064B–U+065F, U+0670) before synthesis, so `أَيْنَ اللَّوْنُ الأَحْمَر؟` reads as
-`أين اللون الأحمر؟`. Disable per request with `strip_diacritics=false`.
+**Diacritics (harakat):** the model DOES read harakat/tanwin/shadda — they are tokens in the
+vocab and measurably change pronunciation (minimal pair: حصان → "hassan" vs حِصَان → "hissan",
+and shadda produces gemination). What garbled diacritized text in BOTH this port and the Python
+reference was the duration estimate: combining marks count as tokens, so fully diacritized text
+inflated the duration up to ~2x, and the model filled the excess with stretched/repeated
+characters. The frontend now keeps the marks but counts them as zero speech time in the duration
+and chunk-sizing math, so `أَيْنَ اللَّوْنُ الأَحْمَر؟` reads as `أين اللون الأحمر؟` and
+disambiguating marks take effect. `strip_diacritics=true` force-strips them instead
+(escape hatch).
 
 ## Quickstart (from a fresh clone)
 

@@ -233,26 +233,34 @@ std::vector<std::string> utf8_chars(const std::string & s) {
 // with character repetitions (verified identical in the Python reference).
 // Removes tatweel U+0640, harakat U+064B..U+065F, dagger alif U+0670 —
 // all encoded as 0xD9-prefixed two-byte sequences.
+bool is_arabic_combining_mark(const std::string & ch) {
+    if (ch.size() != 2) return false;
+    const auto c0 = static_cast<unsigned char>(ch[0]);
+    const auto c1 = static_cast<unsigned char>(ch[1]);
+    return c0 == 0xD9 &&
+           (c1 == 0x80 || (c1 >= 0x8B && c1 <= 0x9F) || c1 == 0xB0);
+}
+
 std::string strip_arabic_diacritics(const std::string & s) {
     std::string out;
     out.reserve(s.size());
-    for (size_t i = 0; i < s.size();) {
-        const auto c = static_cast<unsigned char>(s[i]);
-        if (c == 0xD9 && i + 1 < s.size()) {
-            const auto c2 = static_cast<unsigned char>(s[i + 1]);
-            if (c2 == 0x80 || (c2 >= 0x8B && c2 <= 0x9F) || c2 == 0xB0) {
-                i += 2;  // drop the combining mark
-                continue;
-            }
-        }
-        size_t len = 1;
-        if (c >= 0xF0) len = 4;
-        else if (c >= 0xE0) len = 3;
-        else if (c >= 0xC0) len = 2;
-        out.append(s, i, len);
-        i += len;
+    for (const auto & ch : utf8_chars(s)) {
+        if (!is_arabic_combining_mark(ch)) out += ch;
     }
     return out;
+}
+
+// Duration-relevant character count: combining marks are tokens the model
+// reads as modifications of the base letter — they carry no speech time.
+// Counting them inflates the duration estimate (up to 2x for fully
+// diacritized text), and the model fills the excess with stretched/repeated
+// characters (observed in both this port and the Python reference).
+size_t speech_char_count(const std::string & s) {
+    size_t n = 0;
+    for (const auto & ch : utf8_chars(s)) {
+        if (!is_arabic_combining_mark(ch)) ++n;
+    }
+    return n;
 }
 
 // Python: if ref_text ends with a single-byte char (ASCII), a space is
@@ -897,21 +905,11 @@ static bool is_break_byte_here(const std::string & text, size_t i, size_t * len)
     return false;
 }
 
-static size_t utf8_char_count(const std::string & s) {
-    size_t n = 0;
-    for (size_t i = 0; i < s.size();) {
-        const unsigned char c = static_cast<unsigned char>(s[i]);
-        i += c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : 4;
-        ++n;
-    }
-    return n;
-}
-
 // Split text so each chunk has at most max_chars UTF-8 characters,
 // preferring sentence/clause boundaries.
 std::vector<std::string> chunk_text(const std::string & text, size_t max_chars) {
     std::vector<std::string> chunks;
-    if (utf8_char_count(text) <= max_chars) {
+    if (speech_char_count(text) <= max_chars) {
         chunks.push_back(text);
         return chunks;
     }
@@ -962,10 +960,10 @@ std::vector<std::string> chunk_text(const std::string & text, size_t max_chars) 
     }
     for (const auto & [ss, se] : slices) {
         const std::string piece = text.substr(ss, se - ss);
-        const size_t pc = utf8_char_count(piece);
+        const size_t pc = speech_char_count(piece);
         if (!chunks.empty()) {
             const std::string & prev = chunks.back();
-            const size_t prev_c = utf8_char_count(prev);
+            const size_t prev_c = speech_char_count(prev);
             // merge when it fits, or when the piece is tiny (< 12 chars):
             // tiny chunks destabilize the sampler (observed NaN on 5 chars).
             // Absorbing beyond the size budget overflows the duration
@@ -1055,8 +1053,8 @@ ChunkResult synthesize_chunk(
     // underestimates duration ~1.8x). The reference's speaking rate sets the
     // expectation, bounded by a normal-speech ceiling so an unusually slow
     // reference cannot drag generated speech into a compressed clamp.
-    const int gen_chars = static_cast<int>(utf8_char_count(chunk_text_string));
-    const int ref_chars = std::max(1, static_cast<int>(utf8_char_count(chunk_ref_text)));
+    const int gen_chars = static_cast<int>(speech_char_count(chunk_text_string));
+    const int ref_chars = std::max(1, static_cast<int>(speech_char_count(chunk_ref_text)));
     const double ref_rate = static_cast<double>(ref_voiced_frames) / ref_chars;  // frames/char
     // ceiling only guards pathological refs (e.g. mostly silence); the
     // reference's speaking rate drives pacing, so slow refs stay slow
@@ -1204,7 +1202,7 @@ F5SynthesisResult f5_synthesize(
     // the DURATION budget (frames/char from the reference, capped) so no
     // chunk ever needs clamping; chunk N+1 is conditioned on the tail of
     // chunk N (voice and prosody continuity across seams) ----
-    const int ref_chars0 = std::max<int>(1, static_cast<int>(utf8_char_count(request.ref_text)));
+    const int ref_chars0 = std::max<int>(1, static_cast<int>(speech_char_count(request.ref_text)));
     const double rate0 = std::max(
         std::min(static_cast<double>(ref_voiced_frames) / ref_chars0, 93.75 / 2.5),
         93.75 / 14.0);

@@ -84,7 +84,7 @@ int main(int argc, char ** argv) {
     std::fprintf(stderr, "start\n"); fflush(stderr);
     const std::string model = argc > 1 ? argv[1] : "/mnt/ai/models/Habibi-TTS/Unified/model_200000.safetensors";
     const std::string vocos = argc > 2 ? argv[2] : "/mnt/ai/models/vocos-mel-24khz/vocos.safetensors";
-    const std::string ref = argc > 3 ? argv[3] : "/tmp/f5ref/pkg/habibi/habibi_tts/assets/IRQ.wav";
+    const std::string ref = argc > 3 ? argv[3] : "/mnt/ai/f5-parity/pyref/habibi_tts/assets/IRQ.wav";
     const std::string out_path = argc > 4 ? argv[4] : "/tmp/habibi_e2e.wav";
 
     Wav ref_wav;
@@ -116,6 +116,7 @@ int main(int argc, char ** argv) {
     req.cfg_strength = 2.0F;
     req.seed = 42;
     req.fixed_seed = std::getenv("F5_RANDSEED") == nullptr;  // F5_RANDSEED=1: random per run
+    req.strip_diacritics = std::getenv("F5_NOSTRIP") == nullptr;  // F5_NOSTRIP=1: keep harakat raw
     req.use_cuda = std::getenv("F5_CUDA") != nullptr;
     req.cuda_device = 1;
 

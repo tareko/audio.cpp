@@ -21,9 +21,12 @@ struct F5SynthesisRequest {
     uint32_t seed = 0;
     bool fixed_seed = false;
     int frame_budget = 0;  // total mel frames per CFM pass; 0 = default 2048
-    // Strip harakat/tanwin/shadda/tatweel from the input (Habibi is trained
-    // on undiacritized ASR transcripts; diacritized input garbles).
-    bool strip_diacritics = true;
+    // Harakat/tanwin/shadda are KEPT by default: the model reads them as
+    // letter modifications (verified: حِصَان -> "hissan" vs حصان ->
+    // "hassan") and they are excluded from the duration estimate, which is
+    // what previously garbled diacritized text. This option force-strips
+    // combining marks instead (escape hatch).
+    bool strip_diacritics = false;
     int threads = 0;  // 0 = hardware concurrency
     bool use_cuda = false;
     int cuda_device = 0;
