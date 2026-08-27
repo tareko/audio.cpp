@@ -266,9 +266,11 @@ size_t speech_char_count(const std::string & s) {
 // Density-aware diacritics policy: SPARSE marks work (they disambiguate —
 // حِصان -> "hissan" vs حصان -> "hassan") but DENSE marking pushes the model
 // off its training distribution and it systematically misreads (اللَّوْنُ ->
-// "اللغون" in every config sweep, identical in the Python reference). Keep
-// marks when sparse, strip when dense. حِصَان (0.40) keeps, سَبْعَة (0.60)
-// and fully-marked sentences strip.
+// "اللغون" in every config sweep, identical in the Python reference, and
+// still broken after sukun/shadda-vowel thinning — the shadda token itself
+// derails it; tested and rejected). Keep marks when sparse, strip when dense.
+// حِصان (0.25) keeps; حِصَان (0.50), fully-marked sentences (0.59) and
+// سَبْعَة (0.75) strip.
 constexpr double kMaxMarkDensity = 0.45;
 std::string apply_diacritics_policy(const std::string & text, bool force_strip) {
     if (force_strip) return strip_arabic_diacritics(text);

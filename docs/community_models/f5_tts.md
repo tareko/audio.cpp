@@ -42,10 +42,11 @@ things garbled diacritized text in BOTH this port and the Python reference: (1) 
 counted as tokens in the duration estimate, inflating it up to ~2x so the model filled the
 excess with stretched/repeated characters; (2) DENSE marking (every letter) pushes the model off
 its ASR-transcript training distribution and it systematically misreads (اللَّوْنُ → "اللغون" in
-every sampler config, and identically in Python). The frontend now (a) counts marks as zero
-speech time in duration/chunk math and (b) applies a density-aware policy per chunk: sparse marks
-are kept (they disambiguate vowels), dense marking (marks/letters > 0.55) is stripped.
-`strip_diacritics=true` force-strips everything (escape hatch).
+every sampler config, identically in Python, and still broken after sukun/shadda-vowel
+thinning — even the bare shadda token derails it; tested and rejected). The frontend now
+(a) counts marks as zero speech time in duration/chunk math and (b) strips a chunk's marks
+whenever their density exceeds 0.45. `strip_diacritics=true` force-strips everything
+(escape hatch).
 
 Usage note: sparse, disambiguating marks give the best results (`حِصان` → correct and fluent),
 matching how optional tashkeel is normally used. Diacritic conditioning is real but weak —

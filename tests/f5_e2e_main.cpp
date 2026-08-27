@@ -117,7 +117,8 @@ int main(int argc, char ** argv) {
     req.sway_sampling_coef = std::getenv("F5_SWAY") ? std::atof(std::getenv("F5_SWAY")) : -1.0F;
     req.seed = 42;
     req.fixed_seed = std::getenv("F5_RANDSEED") == nullptr;  // F5_RANDSEED=1: random per run
-    req.strip_diacritics = std::getenv("F5_NOSTRIP") == nullptr;  // F5_NOSTRIP=1: keep harakat raw
+    // default: production auto policy (marks kept/thinned). F5_STRIP=1: force-strip marks.
+    req.strip_diacritics = std::getenv("F5_STRIP") != nullptr;
     req.use_cuda = std::getenv("F5_CUDA") != nullptr;
     req.cuda_device = 1;
 
