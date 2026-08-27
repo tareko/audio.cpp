@@ -113,7 +113,8 @@ int main(int argc, char ** argv) {
         req.text = req.text + " " + req.text + " " + req.text + " " + req.text;
     }
     req.steps = std::getenv("F5_STEPS") ? std::atoi(std::getenv("F5_STEPS")) : 16;
-    req.cfg_strength = 2.0F;
+    req.cfg_strength = std::getenv("F5_CFG") ? std::atof(std::getenv("F5_CFG")) : 2.0F;
+    req.sway_sampling_coef = std::getenv("F5_SWAY") ? std::atof(std::getenv("F5_SWAY")) : -1.0F;
     req.seed = 42;
     req.fixed_seed = std::getenv("F5_RANDSEED") == nullptr;  // F5_RANDSEED=1: random per run
     req.strip_diacritics = std::getenv("F5_NOSTRIP") == nullptr;  // F5_NOSTRIP=1: keep harakat raw
