@@ -96,7 +96,7 @@
       {
         "name": "strip_diacritics",
         "type": "bool",
-        "description": "Force-strip Arabic combining marks (harakat/tanwin/shadda/tatweel) before synthesis. Default false: marks are kept (they disambiguate pronunciation, e.g. حِصَان vs حصان) and excluded from the duration estimate.",
+        "description": "Force-strip Arabic combining marks (harakat/tanwin/shadda/tatweel). Default false = density-aware: sparse marks are kept (they disambiguate vowels), dense marking is stripped (the model misreads it).",
         "required": false,
         "default": false
       }

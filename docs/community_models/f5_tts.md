@@ -36,20 +36,20 @@ package, or a safetensors checkpoint + `vocab.txt` for development). Session opt
 Requests take `reference_text` (required), `dialect`, `speed`, `seed`, `num_inference_steps`,
 `cfg_strength` (alias `guidance_scale`), `sway_sampling_coef`, `strip_diacritics`.
 
-**Diacritics (harakat):** the model DOES read harakat/tanwin/shadda — they are tokens in the
-vocab and measurably change pronunciation (minimal pair: حصان → "hassan" vs حِصَان → "hissan",
-and shadda produces gemination). What garbled diacritized text in BOTH this port and the Python
-reference was the duration estimate: combining marks count as tokens, so fully diacritized text
-inflated the duration up to ~2x, and the model filled the excess with stretched/repeated
-characters. The frontend now keeps the marks but counts them as zero speech time in the duration
-and chunk-sizing math, so `أَيْنَ اللَّوْنُ الأَحْمَر؟` reads as `أين اللون الأحمر؟` and
-disambiguating marks take effect. `strip_diacritics=true` force-strips them instead
-(escape hatch).
+**Diacritics (harakat):** the model reads harakat/tanwin/shadda — they are vocab tokens that
+measurably change pronunciation (minimal pair: حصان → "hassan" vs حِصَان → "hissan") — but two
+things garbled diacritized text in BOTH this port and the Python reference: (1) combining marks
+counted as tokens in the duration estimate, inflating it up to ~2x so the model filled the
+excess with stretched/repeated characters; (2) DENSE marking (every letter) pushes the model off
+its ASR-transcript training distribution and it systematically misreads (اللَّوْنُ → "اللغون" in
+every sampler config, and identically in Python). The frontend now (a) counts marks as zero
+speech time in duration/chunk math and (b) applies a density-aware policy per chunk: sparse marks
+are kept (they disambiguate vowels), dense marking (marks/letters > 0.55) is stripped.
+`strip_diacritics=true` force-strips everything (escape hatch).
 
-Usage note: the model articulates each mark token with real frames — dense marking
-(especially فتحة before ا) can add a small stretch/pause inside words. Best results come
-from sparse, disambiguating marks only (`حِصان` → correct and fluent), matching how
-optional tashkeel is normally used.
+Usage note: sparse, disambiguating marks give the best results (`حِصان` → correct and fluent),
+matching how optional tashkeel is normally used. Diacritic conditioning is real but weak —
+sparse-marked words still vary with seed; dense marking is auto-stripped because it never works.
 
 ## Quickstart (from a fresh clone)
 

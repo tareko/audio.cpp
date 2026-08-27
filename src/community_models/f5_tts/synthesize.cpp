@@ -263,6 +263,27 @@ size_t speech_char_count(const std::string & s) {
     return n;
 }
 
+// Density-aware diacritics policy: SPARSE marks work (they disambiguate —
+// حِصان -> "hissan" vs حصان -> "hassan") but DENSE marking pushes the model
+// off its training distribution and it systematically misreads (اللَّوْنُ ->
+// "اللغون" in every config sweep, identical in the Python reference). Keep
+// marks when sparse, strip when dense. حِصَان (0.40) keeps, سَبْعَة (0.60)
+// and fully-marked sentences strip.
+constexpr double kMaxMarkDensity = 0.45;
+std::string apply_diacritics_policy(const std::string & text, bool force_strip) {
+    if (force_strip) return strip_arabic_diacritics(text);
+    const auto chars = utf8_chars(text);
+    size_t marks = 0;
+    for (const auto & ch : chars) {
+        if (is_arabic_combining_mark(ch)) ++marks;
+    }
+    const size_t letters = chars.size() - marks;
+    if (letters > 0 && static_cast<double>(marks) / letters > kMaxMarkDensity) {
+        return strip_arabic_diacritics(text);
+    }
+    return text;
+}
+
 // Python: if ref_text ends with a single-byte char (ASCII), a space is
 // appended so ref and gen text do not fuse into one token stream.
 std::string apply_ref_trailing_space(std::string ref_text) {
@@ -1137,6 +1158,24 @@ F5SynthesisResult f5_synthesize(
 
     const std::string dir = std::filesystem::path(model_path).parent_path().string();
     const auto vocab = load_vocab(dir);
+#ifdef F5_MEL_TEST
+    if (std::getenv("F5_DEBUG_REQ") != nullptr) {
+        std::string hex;
+        for (const unsigned char c : request.text) {
+            char b[4]; std::snprintf(b, 4, "%02X", c); hex += b;
+        }
+        double rms = 0;
+        for (const float v : request.ref_audio) rms += double(v)*v;
+        rms = std::sqrt(rms / std::max<size_t>(1, request.ref_audio.size()));
+        std::fprintf(stderr,
+            "[F5REQ] steps=%d cfg=%.3f sway=%.3f speed=%.3f seed=%u fixed=%d strip=%d budget=%d cuda=%d dev=%d threads=%d ref_sr=%d ref_n=%zu ref_rms=%.6f dialect=%s\n[F5REQ] text_hex=%s\n[F5REQ] ref_text=%s\n",
+            request.steps, request.cfg_strength, request.sway_sampling_coef, request.speed,
+            request.seed, (int)request.fixed_seed, (int)request.strip_diacritics,
+            request.frame_budget, (int)request.use_cuda, request.cuda_device,
+            request.threads, request.ref_sample_rate, request.ref_audio.size(), rms,
+            request.dialect.c_str(), hex.c_str(), request.ref_text.c_str());
+    }
+#endif
 
     // ref audio -> 24k mono -> normalize to the training RMS -> mel
     // (Python F5: audio *= target_rms / rms when rms < target_rms; the
@@ -1213,10 +1252,9 @@ F5SynthesisResult f5_synthesize(
     // chunks (its 5.5 s reference eats most of the frame budget).
     size_t chars_per_chunk = std::max<size_t>(
         12, static_cast<size_t>(gen_budget / rate0 * 0.92));
-    const std::string gen_text = request.strip_diacritics
-        ? strip_arabic_diacritics(request.text)
-        : request.text;
-    const auto chunks = chunk_text(gen_text, chars_per_chunk);
+    // Chunk the raw text; the diacritics policy is applied per chunk below
+    // (sparse marks kept, dense marks stripped).
+    const auto chunks = chunk_text(request.text, chars_per_chunk);
     std::vector<float> all_rows;
     const std::string ref_text = apply_ref_trailing_space(request.ref_text);
     // Seed semantics match python F5 (seed=None -> fresh randomness every
@@ -1232,11 +1270,12 @@ F5SynthesisResult f5_synthesize(
     // chunking semantics): chained references drift the voice and decay
     // the energy chunk over chunk (observed: two voices + fade to silence).
     for (size_t ci = 0; ci < chunks.size(); ++ci) {
-        const std::string full = assemble_chunk_text(request.dialect, ref_text, chunks[ci]);
+        const std::string spoken = apply_diacritics_policy(chunks[ci], request.strip_diacritics);
+        const std::string full = assemble_chunk_text(request.dialect, ref_text, spoken);
         const auto chunk_ids = tokenize_text(vocab, full);
         auto out = synthesize_chunk(
             model_path, request, ref_mel, ref_frames, ref_voiced_frames, chunk_ids,
-            chunks[ci], ref_text, dev,
+            spoken, ref_text, dev,
             base_seed + static_cast<uint32_t>(ci),
             nullptr, chunks.size() > 1 ? 1.20 : 1.0,
             chunks.size() > 1 ? 0 : 40);
