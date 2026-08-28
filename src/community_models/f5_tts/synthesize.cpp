@@ -1061,6 +1061,7 @@ ChunkResult synthesize_chunk(
     const F5SynthesisRequest & request,
     const std::vector<float> & ref_mel_cols,  // [100][ref_frames]
     int ref_frames,
+    int ref_boundary,  // python ref_audio_len = ref samples // hop (one less than mel frames)
     int ref_voiced_frames,
     const std::vector<int32_t> & chunk_ids,
     const std::string & chunk_text_string,
@@ -1089,7 +1090,8 @@ ChunkResult synthesize_chunk(
     // tolerance for run-to-run pace variance; mid-text chunk tails end on
     // whole words, and any undershoot clips the last word (observed: "النفط",
     // "فقط" dropped at chunk tails). Excess frames become a short tail pause.
-    int duration = ref_frames + static_cast<int>(rate * gen_chars * duration_slack / local_speed);
+    // python: duration = ref_audio_len + ... with ref_audio_len = samples//hop
+    int duration = ref_boundary + static_cast<int>(rate * gen_chars * duration_slack / local_speed);
     // tail_pad (>0 for single-chunk short text): without it a slightly slow
     // sampled pace runs out of frames and the final phonemes are clipped
     // (observed: "أين اللون الأحمر؟" -> "الأخر"). ~0.2s is proportionally
@@ -1113,6 +1115,16 @@ ChunkResult synthesize_chunk(
     Rng rng(seed);
     std::vector<float> y(static_cast<size_t>(duration) * kNMel);
     for (auto & val : y) val = rng.normal();
+#ifdef F5_MEL_TEST
+    // test hook: inject an external noise tensor (float32 [duration*100])
+    if (const char * noise_path = std::getenv("F5_NOISE_BIN")) {
+        std::ifstream nf(noise_path, std::ios::binary);
+        if (nf) {
+            nf.read(reinterpret_cast<char *>(y.data()),
+                    static_cast<std::streamsize>(y.size() * sizeof(float)));
+        }
+    }
+#endif
 
     const auto ts = sway_timesteps(request.steps, request.sway_sampling_coef);
     for (size_t i = 0; i + 1 < ts.size(); ++i) {
@@ -1136,14 +1148,15 @@ ChunkResult synthesize_chunk(
         *out_final_latent_rows = y;
     }
     ChunkResult out;
-    const int gen_frames = std::max(0, duration_real - ref_frames);
+    // python keeps generated[:, ref_audio_len:] — including the last cond frame
+    const int gen_frames = std::max(0, duration_real - ref_boundary);
     out.gen_frames = gen_frames;
     out.duration_real = duration_real;
     out.gen_mel_rows.resize(static_cast<size_t>(gen_frames) * kNMel);
     for (int t = 0; t < gen_frames; ++t) {
         for (int m = 0; m < kNMel; ++m) {
             out.gen_mel_rows[static_cast<size_t>(t) * kNMel + m] =
-                y[static_cast<size_t>(ref_frames + t) * kNMel + m];
+                y[static_cast<size_t>(ref_boundary + t) * kNMel + m];
         }
     }
     return out;
@@ -1247,7 +1260,10 @@ F5SynthesisResult f5_synthesize(
     const double rate0 = std::max(
         std::min(static_cast<double>(ref_voiced_frames) / ref_chars0, 93.75 / 2.5),
         93.75 / 14.0);
-    const int gen_budget = frame_budget(request) - ref_frames;  // frames a chunk may generate
+    // python ref_audio_len = audio.shape[-1] // hop (one less than the mel frame count)
+    const int ref_boundary = std::min(
+        static_cast<int>(ref24.size() / kHop), ref_frames - 1);
+    const int gen_budget = frame_budget(request) - ref_boundary;  // frames a chunk may generate
     // chars per chunk: budget / rate with a safety margin, so the duration
     // estimate NEVER engages the 1024-frame cap (cap = compressed speech).
     // The absolute floor is small: a slow reference legitimately means short
@@ -1258,6 +1274,7 @@ F5SynthesisResult f5_synthesize(
     // (sparse marks kept, dense marks stripped).
     const auto chunks = chunk_text(request.text, chars_per_chunk);
     std::vector<float> all_rows;
+    std::vector<float> latent_dump;
     const std::string ref_text = apply_ref_trailing_space(request.ref_text);
     // Seed semantics match python F5 (seed=None -> fresh randomness every
     // run): an unspecified seed draws a random base seed per request, so a
@@ -1276,10 +1293,10 @@ F5SynthesisResult f5_synthesize(
         const std::string full = assemble_chunk_text(request.dialect, ref_text, spoken);
         const auto chunk_ids = tokenize_text(vocab, full);
         auto out = synthesize_chunk(
-            model_path, request, ref_mel, ref_frames, ref_voiced_frames, chunk_ids,
+            model_path, request, ref_mel, ref_frames, ref_boundary, ref_voiced_frames, chunk_ids,
             spoken, ref_text, dev,
             base_seed + static_cast<uint32_t>(ci),
-            nullptr, chunks.size() > 1 ? 1.20 : 1.0,
+            (std::getenv("F5_MEL_DUMP") != nullptr ? &latent_dump : nullptr), chunks.size() > 1 ? 1.20 : 1.0,
             chunks.size() > 1 ? 0 : 40);
         if (chunks.size() > 1) {
             const char last_ch = chunks[ci].empty() ? ' ' : chunks[ci].back();
@@ -1288,6 +1305,13 @@ F5SynthesisResult f5_synthesize(
         }
         all_rows.insert(all_rows.end(), out.gen_mel_rows.begin(), out.gen_mel_rows.end());
     }
+#ifdef F5_MEL_TEST
+    if (const char * dump = std::getenv("F5_MEL_DUMP")) {
+        std::ofstream f(dump, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(latent_dump.data()),
+                static_cast<std::streamsize>(latent_dump.size() * sizeof(float)));
+    }
+#endif
 
     result.audio = request.use_cuda
         ? vocos_decode_gpu(vocos_path, all_rows, dev)
