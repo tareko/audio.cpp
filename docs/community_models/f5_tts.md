@@ -43,7 +43,9 @@ counted as tokens in the duration estimate, inflating it up to ~2x so the model 
 excess with stretched/repeated characters; (2) DENSE marking (every letter) pushes the model off
 its ASR-transcript training distribution and it systematically misreads (اللَّوْنُ → "اللغون" in
 every sampler config, identically in Python, and still broken after sukun/shadda-vowel
-thinning — even the bare shadda token derails it; tested and rejected). The frontend now
+thinning — tested and rejected; dense vowel-only marking garbles too). Shadda alone is fine
+(`اللّون` reads correctly); shadda combined with vowel marks in the same chunk derails
+(`اللّونُ` → "اللغان"). The frontend now
 (a) counts marks as zero speech time in duration/chunk math and (b) strips a chunk's marks
 whenever their density exceeds 0.45. `strip_diacritics=true` force-strips everything
 (escape hatch).
